@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>777 Casino</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:Georgia,serif;color:#ffd700}
+canvas{display:block}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(#4a0014,#120005);text-align:center}
+.screen h1{font-size:6rem;margin:0;text-shadow:0 0 20px #f00}
+button{font:inherit;font-size:1.4rem;margin:.4rem;padding:.6rem 2rem;background:#ffd700;border:0;border-radius:6px;cursor:pointer}
+.hidden{display:none!important}
+#hud{position:fixed;top:10px;left:10px;font-size:1.2rem;text-shadow:0 0 4px #000}
+#prompt{position:fixed;bottom:12%;width:100%;text-align:center;font-size:1.4rem;text-shadow:0 0 4px #000}
+#cross{position:fixed;top:50%;left:50%;width:6px;height:6px;margin:-3px;background:#fff8;border-radius:50%}
+</style></head><body>
+<div id="menu" class="screen"><h1>777</h1><p>3D Casino</p>
+<button id="play">Play</button><button id="help">Controls</button>
+<p id="controls" class="hidden">WASD move · Shift run · Space jump · Mouse look · E use slot machine · Esc pause</p></div>
+<div id="hud" class="hidden">Credits: <span id="credits">100</span></div>
+<div id="cross" class="hidden"></div><div id="prompt"></div>
+<script type="module" src="/src/main.js"></script></body></html>
