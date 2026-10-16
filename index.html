@@ -31,6 +31,28 @@
   #roulette p { margin: 6px 0; }
   #rl-status { color: #ffd24a; min-height: 1.3em; }
   #bj-status { color: #ffd24a; min-height: 1.3em; }
+  #hotbar { position: fixed; bottom: 46px; left: 50%; transform: translateX(-50%); display: none; gap: 6px; z-index: 3; }
+  .slot { position: relative; width: 64px; height: 64px; border: 2px solid #c9a22788; border-radius: 6px; background: #000a; text-align: center; box-sizing: border-box; }
+  .slot.has { border-color: #ffd24a; background: #1a0a10dd; }
+  .slot .k { position: absolute; top: 2px; left: 5px; font-size: .75rem; color: #e8c98a; }
+  .slot .ic { display: block; font-size: 1.6rem; margin-top: 10px; }
+  .slot .nm { position: absolute; bottom: 2px; left: 0; width: 100%; font-size: .55rem; color: #e8c98a; }
+  .slot .ct { position: absolute; top: 2px; right: 5px; font-size: .8rem; color: #ffd24a; }
+  #dep { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); width: min(420px, 70vw); display: none; align-items: center; gap: 8px; font-size: .9rem; color: #e8c98a; text-shadow: 0 0 6px #000; z-index: 3; }
+  #dep-bar { flex: 1; height: 14px; border: 1px solid #c9a227; background: #000a; border-radius: 7px; overflow: hidden; }
+  #dep-fill { height: 100%; width: 0; background: linear-gradient(90deg, #4a6fa5, #2a2d5a); transition: width .4s; }
+  .slot.sel { box-shadow: 0 0 8px #ffd24a; border-color: #fff; }
+  #gameover { display: none; z-index: 20; background: #000e; text-align: center; padding: 2rem; box-sizing: border-box; }
+  #gameover p { font-size: 2rem; color: #c33; max-width: 40rem; }
+  #hurt { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle, transparent 40%, #c00 100%); opacity: 0; transition: opacity .3s; z-index: 4; }
+  #shop { display: none; position: fixed; top: 16px; right: 16px; width: min(340px, calc(100vw - 32px)); padding: 16px; border: 1px solid #c9a227; background: #101810eF; color: #f5e8c8; box-sizing: border-box; }
+  #pillshop { display: none; position: fixed; top: 16px; right: 16px; width: min(380px, calc(100vw - 32px)); padding: 16px; border: 1px solid #c9a227; background: #101810eF; color: #f5e8c8; box-sizing: border-box; }
+  #pillshop h2 { margin: 0 0 10px; color: #ffd24a; font-size: 1.25rem; }
+  #pillshop p { margin: 6px 0; }
+  #pill-status { color: #ffd24a; min-height: 1.3em; }
+  #shop h2 { margin: 0 0 10px; color: #ffd24a; font-size: 1.25rem; }
+  #shop p { margin: 6px 0; }
+  #shop-status { color: #ffd24a; min-height: 1.3em; }
 </style>
 </head>
 <body>
@@ -39,10 +61,14 @@
   <p>The Grand Online Casino</p>
   <button id="play">Play</button>
   <button id="howto">How to Play</button>
-  <div id="help">WASD / arrows to move, Shift to run, Space to jump, mouse to look.<br>Press E at a slot machine to spin. Use + / - to raise or lower your bet. At the plinko board press E to drop a ball. At blackjack you sit in the dealer's chair: E deals, H hits, S stands, and Q leaves. At the roulette and dice tables press E to sit; at dice, hold left click on the dice and release to throw.<br>Esc to return to the menu.</div>
+  <div id="help">WASD / arrows to move, Shift to run, Space to jump, mouse to look.<br>Press E at a slot machine to spin. Use + / - to raise or lower your bet. At the plinko board press E to drop a ball. At blackjack you sit in the dealer's chair: E deals, H hits, S stands, and Q leaves. At the roulette and dice tables press E to sit; at dice, hold left click on the dice and release to throw.<br>The door on the left wall leads to the Dark Room: press E near an addict to rob them (40%, once per 2 min each), but beware their punches. Buy a bat (1000 credits) at the shop on the right and left click to knock them out; robbing a body has an 80% chance. The axe (2500) chops off the limb or head you hit and kills the addict; pick up limbs with E and sell them to the mysterious man in the corner of the Dark Room (arms/legs 20, heads 35). Dead addicts respawn after 2 minutes. The flashlight, bat and axe live in the hotbar (1, 7, 6); R cycles tools and F toggles the flashlight when held. Keep the depression meter full for two minutes and you lose your sanity.<br>The pill dealer next to the weapons shop sells consumables; use hotbar keys 2-5 to take them. Losing bets or getting knocked out fills the depression meter; antidepressants lower it.<br>Esc to return to the menu.</div>
 </div>
 <div id="pause" class="overlay"><button id="resume">Resume</button><button id="quit">Main Menu</button></div>
-<div id="hud">Credits: <span id="credits">1000</span></div>
+<div id="hud">Credits: <span id="credits">100000</span> &nbsp; Health: <span id="health">100</span></div>
+<div id="hurt"></div>
+<div id="gameover" class="overlay"><p>You have become adicted, you lost your sanity and joined the others in the dark room.</p><button id="restart">Restart from scratch</button></div>
+<div id="hotbar"></div>
+<div id="dep"><span id="dep-label">Depression</span><div id="dep-bar"><div id="dep-fill"></div></div><span id="dep-pct">0%</span></div>
 <div id="cross"></div>
 <div id="prompt"></div>
 <div id="msg"></div>
@@ -67,6 +93,22 @@
   <p>Last roll: <span id="dc-last">-</span></p>
   <p id="dc-status"></p>
   <p>1 over 7 · 2 under 7 · 3 lucky 7 · +/- bet · hold click on dice to pick up, release to throw · Q leave</p>
+</section>
+<section id="shop" aria-live="polite">
+  <h2>Weapons Shop</h2>
+  <p>Credits: <span id="shop-credits">-</span></p>
+  <p>1 · Baseball Bat — <span id="shop-bat">1000 credits</span></p>
+  <p>2 · Flashlight — <span id="shop-flash">200 credits</span></p>
+  <p>3 · Axe — <span id="shop-axe">2500 credits</span></p>
+  <p id="shop-status"></p>
+  <p>1-3 buy · Q close</p>
+</section>
+<section id="pillshop" aria-live="polite">
+  <h2>Pill Dealer</h2>
+  <p>Credits: <span id="pill-credits">-</span></p>
+  <div id="pill-list"></div>
+  <p id="pill-status"></p>
+  <p>1-4 buy · Q close · outside the shop, hotbar keys 2-5 use a pill</p>
 </section>
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }

@@ -25,6 +25,8 @@ addEventListener('resize', () => {
 // ---------- Room ----------
 const ROOM = { w: 16, d: 16, h: 4 };
 const colliders = []; // axis-aligned boxes {minX,maxX,minZ,maxZ}
+const DOOR = { hw: 1, h: 2.6, open: false, t: 0 };
+const DARK = { minX: -26, w: 18, d: 18, h: 3.2 };
 
 function carpetTexture() {
   const c = document.createElement('canvas');
@@ -65,6 +67,7 @@ const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a0a16, roughness: 0.8
   [0, -ROOM.d / 2, 0], [0, ROOM.d / 2, Math.PI],
   [-ROOM.w / 2, 0, Math.PI / 2], [ROOM.w / 2, 0, -Math.PI / 2],
 ].forEach(([x, z, ry], i) => {
+  if (i === 2) return; // left wall is built below with a doorway
   const wall = new THREE.Mesh(new THREE.PlaneGeometry(i < 2 ? ROOM.w : ROOM.d, ROOM.h), wallMat);
   wall.position.set(i < 2 ? 0 : x, ROOM.h / 2, i < 2 ? z : 0);
   wall.rotation.y = ry;
@@ -78,7 +81,8 @@ function wallStrip(y, h, t) {
   [
     [ROOM.w, t, 0, -ROOM.d / 2 + inset],
     [ROOM.w, t, 0, ROOM.d / 2 - inset],
-    [t, ROOM.d, -ROOM.w / 2 + inset, 0],
+    [t, ROOM.d / 2 - DOOR.hw, -ROOM.w / 2 + inset, -(ROOM.d / 2 + DOOR.hw) / 2],
+    [t, ROOM.d / 2 - DOOR.hw, -ROOM.w / 2 + inset, (ROOM.d / 2 + DOOR.hw) / 2],
     [t, ROOM.d, ROOM.w / 2 - inset, 0],
   ].forEach(([w, d, x, z]) => {
     const s = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), trimMat);
@@ -86,8 +90,161 @@ function wallStrip(y, h, t) {
     scene.add(s);
   });
 }
+// Left wall with a doorway at z = 0
+{
+  const segLen = ROOM.d / 2 - DOOR.hw;
+  [-1, 1].forEach((sgn) => {
+    const seg = new THREE.Mesh(new THREE.PlaneGeometry(segLen, ROOM.h), wallMat);
+    seg.position.set(-ROOM.w / 2, ROOM.h / 2, sgn * (DOOR.hw + segLen / 2));
+    seg.rotation.y = Math.PI / 2;
+    scene.add(seg);
+  });
+  const lintel = new THREE.Mesh(new THREE.PlaneGeometry(DOOR.hw * 2, ROOM.h - DOOR.h), wallMat);
+  lintel.position.set(-ROOM.w / 2, DOOR.h + (ROOM.h - DOOR.h) / 2, 0);
+  lintel.rotation.y = Math.PI / 2;
+  scene.add(lintel);
+}
 wallStrip(1.2, 0.12, 0.04);
 wallStrip(0.1, 0.2, 0.06);
+const darkLights = [];
+
+// ---------- Door & Dark Room ----------
+const doorPivot = new THREE.Group();
+doorPivot.position.set(-ROOM.w / 2 + 0.05, 0, -DOOR.hw);
+{
+  const panel = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, DOOR.h, DOOR.hw * 2),
+    new THREE.MeshStandardMaterial({ color: 0x2b1a12, roughness: 0.7 })
+  );
+  panel.position.set(0, DOOR.h / 2, DOOR.hw);
+  const knobD = new THREE.Mesh(new THREE.SphereGeometry(0.06), trimMat);
+  knobD.position.set(0.08, 1.1, DOOR.hw * 1.7);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.3), (() => {
+    const c = document.createElement('canvas');
+    c.width = 280; c.height = 60;
+    const g = c.getContext('2d');
+    g.fillStyle = '#120a08'; g.fillRect(0, 0, 280, 60);
+    g.fillStyle = '#c9a227'; g.font = 'bold 36px Georgia'; g.textAlign = 'center';
+    g.fillText('DARK ROOM', 140, 43);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({ map: t });
+  })());
+  sign.position.set(0.05, DOOR.h - 0.3, DOOR.hw);
+  sign.rotation.y = Math.PI / 2;
+  doorPivot.add(panel, knobD, sign);
+}
+scene.add(doorPivot);
+
+const darkMat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1 });
+const darkGroup = new THREE.Group();
+{
+  const cx = DARK.minX + DARK.w / 2;
+  const f = new THREE.Mesh(new THREE.PlaneGeometry(DARK.w, DARK.d), darkMat(0x1a1713));
+  f.rotation.x = -Math.PI / 2; f.position.set(cx, 0, 0);
+  const c = new THREE.Mesh(new THREE.PlaneGeometry(DARK.w, DARK.d), darkMat(0x0d0b0a));
+  c.rotation.x = Math.PI / 2; c.position.set(cx, DARK.h, 0);
+  darkGroup.add(f, c);
+  const wm = darkMat(0x1f1c18);
+  [[cx, -DARK.d / 2, 0, DARK.w], [cx, DARK.d / 2, Math.PI, DARK.w], [DARK.minX, 0, Math.PI / 2, DARK.d]].forEach(([x, z, ry, w]) => {
+    const wl = new THREE.Mesh(new THREE.PlaneGeometry(w, DARK.h), wm);
+    wl.position.set(x, DARK.h / 2, z); wl.rotation.y = ry;
+    darkGroup.add(wl);
+  });
+  // Walls of the doorway passage so the wall's thickness isn't see-through
+  const top = new THREE.Mesh(new THREE.PlaneGeometry(DARK.d / 2 - DOOR.hw, DARK.h), wm);
+  [-1, 1].forEach((sgn) => {
+    const seg = top.clone();
+    seg.position.set(-ROOM.w / 2 - 0.01, DARK.h / 2, sgn * (DOOR.hw + (DARK.d / 2 - DOOR.hw) / 2));
+    seg.rotation.y = -Math.PI / 2;
+    darkGroup.add(seg);
+  });
+  const dl = new THREE.Mesh(new THREE.PlaneGeometry(DOOR.hw * 2, DARK.h - DOOR.h), wm);
+  dl.position.set(-ROOM.w / 2 - 0.01, DOOR.h + (DARK.h - DOOR.h) / 2, 0);
+  dl.rotation.y = -Math.PI / 2;
+  darkGroup.add(dl);
+  // Dim, flickering red lights
+  [[-12, -5], [-17, 4], [-22, -3], [-21, 6]].forEach(([x, z], i) => {
+    const l = new THREE.PointLight(0xff4020, 5, 9);
+    l.position.set(x, DARK.h - 0.4, z);
+    l.userData.phase = i * 1.7;
+    darkGroup.add(l);
+    darkLights.push(l);
+  });
+  // A few stained pillars to break up the space
+  [[-14, -5], [-14, 5], [-19, 0], [-23, -6], [-23, 6]].forEach(([x, z]) => {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.7, DARK.h, 0.7), darkMat(0x2a2620));
+    p.position.set(x, DARK.h / 2, z);
+    darkGroup.add(p);
+    colliders.push({ minX: x - 0.35, maxX: x + 0.35, minZ: z - 0.35, maxZ: z + 0.35 });
+  });
+}
+scene.add(darkGroup);
+
+// ---------- Shop ----------
+const SHOP = { x: 7.2, z: 0 };
+{
+  const counter = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 2.4), new THREE.MeshStandardMaterial({ color: 0x4a2a14, roughness: 0.6 }));
+  counter.position.set(SHOP.x, 0.5, SHOP.z);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 2.5), trimMat);
+  top.position.set(SHOP.x, 1.04, SHOP.z);
+  const batDisplay = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.06, 0.9, 10), new THREE.MeshStandardMaterial({ color: 0xb98a4e, roughness: 0.6 }));
+  batDisplay.position.set(SHOP.x, 1.12, SHOP.z);
+  batDisplay.rotation.x = Math.PI / 2;
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 96;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1a0208'; g.fillRect(0, 0, 256, 96);
+  g.strokeStyle = '#ffd24a'; g.lineWidth = 6; g.strokeRect(3, 3, 250, 90);
+  g.fillStyle = '#ffd24a'; g.font = 'bold 36px Georgia'; g.textAlign = 'center';
+  g.fillText('WEAPONS SHOP', 128, 58);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.675), new THREE.MeshBasicMaterial({ map: tex }));
+  sign.position.set(ROOM.w / 2 - 0.03, 2.6, SHOP.z);
+  sign.rotation.y = -Math.PI / 2;
+  const lamp = new THREE.PointLight(0xffd9a0, 8, 6);
+  lamp.position.set(SHOP.x - 0.6, 2.4, SHOP.z);
+  scene.add(counter, top, batDisplay, sign, lamp);
+  colliders.push({ minX: SHOP.x - 0.55, maxX: SHOP.x + 0.55, minZ: SHOP.z - 1.25, maxZ: SHOP.z + 1.25 });
+}
+
+// ---------- Pill dealer ----------
+const DEALER = { x: 7.3, z: 3.2 };
+{
+  const g = new THREE.Group();
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 400;
+  const cg = c.getContext('2d');
+  cg.fillStyle = '#e8e8e0'; cg.fillRect(0, 0, 256, 400);
+  cg.fillStyle = '#7a1020'; cg.font = 'bold 54px Georgia'; cg.textAlign = 'center';
+  cg.fillText('PILL', 128, 170);
+  cg.fillText('DEALER', 128, 235);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const plain = new THREE.MeshStandardMaterial({ color: 0xe8e8e0 });
+  const shirtMats = [plain, plain, plain, plain, new THREE.MeshStandardMaterial({ map: tex }), plain];
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.75, 0.3), shirtMats);
+  torso.position.y = 1.1;
+  const skin = new THREE.MeshStandardMaterial({ color: 0xc89870, roughness: 0.8 });
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 12), skin);
+  head.position.y = 1.65;
+  const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.08, 14), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+  hat.position.y = 1.78;
+  const pants = new THREE.MeshStandardMaterial({ color: 0x1a1a22 });
+  [-1, 1].forEach((sx) => {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.75, 0.2), pants);
+    l.position.set(sx * 0.13, 0.375, 0);
+    const a = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.65, 0.12), skin);
+    a.position.set(sx * 0.31, 1.07, 0);
+    g.add(l, a);
+  });
+  g.add(torso, head, hat);
+  g.position.set(DEALER.x, 0, DEALER.z);
+  g.rotation.y = -Math.PI / 2;
+  scene.add(g);
+  colliders.push({ minX: DEALER.x - 0.3, maxX: DEALER.x + 0.3, minZ: DEALER.z - 0.3, maxZ: DEALER.z + 0.3 });
+}
 
 // Lighting
 scene.add(new THREE.AmbientLight(0xffe6c0, 0.5));
@@ -482,6 +639,7 @@ function finishBlackjackHand() {
     mood = 0;
     blackjack.result = 'Push. Your bet is returned. Press E for another hand.';
   } else blackjack.result = 'Dealer wins. Press E for another hand.';
+  if (mood < 0) addSadness(LOSS_SADNESS);
   credits += payout;
   updateCredits();
   dealer.mood = mood;
@@ -718,6 +876,7 @@ function settleRoulette() {
     dealer.moodT = 1.2;
   } else {
     roulette.result = `${n}. You lose. Press E to spin again.`;
+    addSadness(LOSS_SADNESS);
   }
   renderRoulette();
 }
@@ -929,7 +1088,7 @@ function resolveDice() {
     credits += win;
     updateCredits();
     dice.result = `${sum}! You win ${win}. Pick up the dice to roll again.`;
-  } else dice.result = `${sum}. You lose. Pick up the dice to roll again.`;
+  } else { dice.result = `${sum}. You lose. Pick up the dice to roll again.`; addSadness(LOSS_SADNESS); }
   renderDice();
 }
 
@@ -947,6 +1106,7 @@ function dicePick(e) {
 }
 
 addEventListener('mousedown', (e) => {
+  if (e.button === 0 && playing && weapon !== 'flash' && (hasBat || hasAxe) && !dice.active && !blackjack.active && !roulette.active) swingWeapon();
   if (e.button === 0 && dice.active && playing) grabDice();
 });
 addEventListener('mouseup', (e) => {
@@ -1067,7 +1227,7 @@ function settle(m) {
     credits += win;
     updateCredits();
     showMsg(`You won ${win}!`);
-  }
+  } else addSadness(LOSS_SADNESS);
 }
 
 function updateReels(m, dt) {
@@ -1255,6 +1415,7 @@ function updatePlinko(dt) {
         const win = Math.floor(b.bet * mult);
         credits += win;
         updateCredits();
+        if (win < b.bet) addSadness(LOSS_SADNESS);
         showMsg(`Plinko ${mult}x: ${win >= b.bet ? 'won' : 'got back'} ${win}`, 1500);
       }
     } else {
@@ -1284,6 +1445,15 @@ addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (!playing || e.repeat) return;
   if (e.code === 'Space') e.preventDefault();
+  if (shop.active) {
+    const n = Number(e.code.replace(/^(Digit|Numpad)/, ''));
+    if (shop.kind === 'weapons' && n === 1) buyBat();
+    if (shop.kind === 'weapons' && n === 2) buyFlash();
+    if (shop.kind === 'weapons' && n === 3) buyAxe();
+    if (shop.kind === 'pills' && n >= 1 && n <= PILLS.length) buyPill(n - 1);
+    if (e.code === 'KeyQ' || e.code === 'KeyE') closeShop();
+    return;
+  }
   if (dice.active) { dicePick(e); return; }
   if (roulette.active) { roulettePick(e); return; }
   if (blackjack.active) {
@@ -1297,8 +1467,17 @@ addEventListener('keydown', (e) => {
   }
   if (e.code === 'Equal' || e.code === 'NumpadAdd') adjustBet(1);
   if (e.code === 'Minus' || e.code === 'NumpadSubtract') adjustBet(-1);
+  if (e.code === 'KeyF' && hasFlash && weapon === 'flash') { flashOn = !flashOn; flash.visible = flashOn; }
+  if (e.code === 'KeyR') {
+    const owned = ['bat', 'axe', 'flash'].filter(isOwned);
+    if (owned.length > 1) setWeapon(owned[(owned.indexOf(weapon) + 1) % owned.length]);
+  }
+  if (EQUIP_KEYS[e.code] && isOwned(EQUIP_KEYS[e.code])) setWeapon(EQUIP_KEYS[e.code]);
+  if (/^Digit[2-5]$/.test(e.code)) usePill(Number(e.code[5]) - 2);
   if (e.code === 'KeyE') {
-    if (nearBlackjack()) enterBlackjack();
+    const act = contextAction();
+    if (act) act.run();
+    else if (nearBlackjack()) enterBlackjack();
     else if (nearRoulette()) enterRoulette();
     else if (nearDice()) enterDice();
     else {
@@ -1325,10 +1504,24 @@ addEventListener('mousemove', (e) => {
 
 function resolveCollisions() {
   const r = player.radius;
-  const lim = { x: ROOM.w / 2 - r, z: ROOM.d / 2 - r };
   const p = player.pos;
-  if (Math.abs(p.x) > lim.x) { p.x = Math.sign(p.x) * lim.x; player.vel.x = 0; }
-  if (Math.abs(p.z) > lim.z) { p.z = Math.sign(p.z) * lim.z; player.vel.z = 0; }
+  const wallX = -ROOM.w / 2;
+  const inGap = DOOR.open && Math.abs(p.z) < DOOR.hw - r;
+  const minX = inGap || p.x < wallX ? DARK.minX + r : wallX + r;
+  const zLim = (p.x < wallX - r ? DARK.d : ROOM.d) / 2 - r;
+  p.x = Math.max(minX, Math.min(ROOM.w / 2 - r, p.x));
+  if (Math.abs(p.z) > zLim) { p.z = Math.sign(p.z) * zLim; player.vel.z = 0; }
+  if (!inGap && p.x > wallX - r && p.x < wallX + r) {
+    p.x = p.x > wallX ? wallX + r : wallX - r;
+    player.vel.x = 0;
+  }
+  if (p.x < wallX) p.z = Math.max(-DARK.d / 2 + r, Math.min(DARK.d / 2 - r, p.z));
+  for (const a of addicts) {
+    if (a.ko) continue;
+    const dx = p.x - a.g.position.x, dz = p.z - a.g.position.z;
+    const d = Math.hypot(dx, dz), min = r + 0.3;
+    if (d < min && d > 0) { p.x += (dx / d) * (min - d); p.z += (dz / d) * (min - d); }
+  }
 
   for (const b of colliders) {
     // Circle vs AABB; ignore if player is above the obstacle's height.
@@ -1350,7 +1543,7 @@ function resolveCollisions() {
 function updatePlayer(dt) {
   const fwd = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
   const side = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-  const speed = keys.ShiftLeft || keys.ShiftRight ? PHYS.run : PHYS.walk;
+  const speed = (keys.ShiftLeft || keys.ShiftRight ? PHYS.run : PHYS.walk) * (clock.elapsedTime < buffs.stimulant ? 1.5 : 1);
 
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
   let wx = -sin * fwd + cos * side;
@@ -1423,6 +1616,492 @@ function nearBlackjack() {
   return dist > 0 && (dx * lookX + dz * lookZ) / dist > 0.35;
 }
 
+
+// ---------- Dark room: addicts, robbing, bat, shop ----------
+const ROB_COOLDOWN = 120;
+const BAT_PRICE = 1000, FLASH_PRICE = 200, AXE_PRICE = 2500;
+const RESPAWN_TIME = 120;
+const LIMB_VALUE = { arm: 20, leg: 20, head: 35 };
+const health = { hp: 100, max: 100 };
+let hasBat = false, hasFlash = false, hasAxe = false, weapon = 'bat', flashOn = false;
+const carried = { arm: 0, leg: 0, head: 0 };
+const looseLimbs = [];
+const LOSS_SADNESS = 1.5, KO_SADNESS = 6;
+const depression = { v: 0 };
+function addSadness(n) {
+  depression.v = Math.max(0, Math.min(100, depression.v + n));
+  renderDepression();
+}
+function renderDepression() {
+  $('dep-fill').style.width = `${depression.v}%`;
+  $('dep-pct').textContent = `${Math.round(depression.v)}%`;
+}
+const shop = { active: false, kind: 'weapons' };
+const PILLS = [
+  { key: 'painkiller', name: 'Painkillers', desc: 'restore 50 health', price: 50, count: 0 },
+  { key: 'stimulant', name: 'Stimulants', desc: 'run faster for 60s', price: 50, count: 0 },
+  { key: 'ironpill', name: 'Iron Pills', desc: 'take half damage for 60s', price: 50, count: 0 },
+  { key: 'antidep', name: 'Antidepressants', desc: 'lower depression by 50%', price: 50, count: 0 },
+];
+const buffs = { stimulant: 0, ironpill: 0 };
+const PILL_ICONS = { painkiller: '💊', stimulant: '⚡', ironpill: '🛡️', antidep: '😊' };
+function renderPillHud() {
+  const slots = [{ icon: '🏏', name: 'Bat', count: hasBat ? 1 : 0, show: false, tool: 'bat' }, ...PILLS.map((p) => ({ icon: PILL_ICONS[p.key], name: p.name, count: p.count, show: true })),
+    { icon: '🪓', name: 'Axe', count: hasAxe ? 1 : 0, show: false, tool: 'axe' }, { icon: '🔦', name: 'Flashlight', count: hasFlash ? 1 : 0, show: false, tool: 'flash' }];
+  $('hotbar').innerHTML = slots.map((sl, i) => `<div class="slot${sl.count ? ' has' : ''}${sl.tool && sl.tool === weapon && sl.count ? ' sel' : ''}" title="${sl.name}"><span class="k">${i + 1}</span>${sl.count ? `<span class="ic">${sl.icon}</span><span class="nm">${sl.name}</span>${sl.show ? `<span class="ct">${sl.count}</span>` : ''}` : ''}</div>`).join('');
+}
+renderPillHud();
+renderDepression();
+const addicts = [];
+
+const skinMat = new THREE.MeshStandardMaterial({ color: 0x8a9a6a, roughness: 0.9 });
+const rags = [0x3a3a30, 0x4a3a2a, 0x2a3040].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1 }));
+function createAddict(x, z) {
+  const g = new THREE.Group();
+  const body = new THREE.Group();
+  const cloth = rags[Math.floor(Math.random() * rags.length)];
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.68, 0.24), cloth);
+  torso.position.y = 1.1;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), skinMat);
+  head.position.y = 1.58;
+  head.userData.part = 'head';
+  torso.userData.part = 'torso';
+  const eyes = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.02), new THREE.MeshBasicMaterial({ color: 0x300808 }));
+  eyes.position.set(0, 1.6, 0.14);
+  const arm = (sx) => {
+    const a = new THREE.Group();
+    a.position.set(sx * 0.27, 1.4, 0);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.62, 0.11), skinMat);
+    m.position.y = -0.3;
+    m.userData.part = sx < 0 ? 'armL' : 'armR';
+    a.add(m);
+    return a;
+  };
+  const armL = arm(-1), armR = arm(1);
+  const leg = (sx) => {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.78, 0.16), cloth);
+    l.position.set(sx * 0.11, 0.39, 0);
+    l.userData.part = sx < 0 ? 'legL' : 'legR';
+    return l;
+  };
+  const legL = leg(-1), legR = leg(1);
+  body.add(torso, head, eyes, armL, armR, legL, legR);
+  g.add(body);
+  g.position.set(x, 0, z);
+  g.rotation.y = Math.random() * Math.PI * 2;
+  darkGroup.add(g);
+  addicts.push({ g, body, armL, armR, parts: { head, eyes, armL, armR, legL, legR }, dead: false, ko: false, koUntil: 0, bodyRobbed: false, robReady: 0, heading: g.rotation.y, turnT: 0, windup: 0, punchCd: 1 + Math.random() * 2, sway: Math.random() * 10, fall: 0 });
+}
+[[-12, -2], [-13, 6], [-15, -7], [-16, 2], [-18, -4], [-18, 7], [-20, 3], [-21, -7], [-22, 0], [-24, 4], [-24, -3], [-15, 0]].forEach(([x, z]) => createAddict(x, z));
+
+const MAN = { x: -25, z: -8 };
+{
+  const g = new THREE.Group();
+  const coat = new THREE.MeshStandardMaterial({ color: 0x0c0c10, roughness: 1 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, 1.4, 10), coat);
+  body.position.y = 0.7;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), new THREE.MeshStandardMaterial({ color: 0x050505 }));
+  head.position.y = 1.6;
+  const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 14), coat);
+  hat.position.y = 1.72;
+  const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.2, 12), coat);
+  hatTop.position.y = 1.82;
+  const eyes = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.02), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
+  eyes.position.set(0, 1.62, 0.16);
+  g.add(body, head, hat, hatTop, eyes);
+  g.position.set(MAN.x, 0, MAN.z);
+  g.rotation.y = Math.PI / 4;
+  darkGroup.add(g);
+  colliders.push({ minX: MAN.x - 0.4, maxX: MAN.x + 0.4, minZ: MAN.z - 0.4, maxZ: MAN.z + 0.4 });
+}
+
+const lookDot = (x, z) => {
+  const dx = x - player.pos.x, dz = z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  return { d, dot: d > 0 ? (dx * -Math.sin(player.yaw) + dz * -Math.cos(player.yaw)) / d : 1 };
+};
+
+function targetAddict(range, minDot = 0.55) {
+  let best = null, bestD = range;
+  for (const a of addicts) {
+    const { d, dot } = lookDot(a.g.position.x, a.g.position.z);
+    if (d < bestD && dot > minDot) { best = a; bestD = d; }
+  }
+  return best;
+}
+
+const rand = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
+
+function robAddict(a) {
+  const now = clock.elapsedTime;
+  if (a.ko) {
+    if (a.bodyRobbed) return showMsg('Already picked clean.', 1500);
+    a.bodyRobbed = true;
+    if (Math.random() < 0.8) {
+      const gain = rand(15, 35);
+      credits += gain; updateCredits();
+      showMsg(`You rob the body: +${gain} credits`);
+    } else showMsg('Nothing in their pockets...');
+    return;
+  }
+  if (now < a.robReady) return showMsg(`Nothing left to steal. Try again in ${Math.ceil(a.robReady - now)}s`, 1800);
+  a.robReady = now + ROB_COOLDOWN;
+  if (Math.random() < 0.4) {
+    const gain = rand(5, 15);
+    credits += gain; updateCredits();
+    showMsg(`You lift their wallet: +${gain} credits`);
+  } else {
+    showMsg('They noticed you!');
+    a.windup = 0.01;
+  }
+}
+
+let batSwing = 0;
+const raycaster = new THREE.Raycaster();
+function swingWeapon() {
+  if (batSwing > 0) return;
+  batSwing = 0.35;
+  if (weapon === 'axe') chopAddict(); else swingBat();
+}
+function swingBat() {
+  const a = targetAddict(1.9, 0.5);
+  if (!a || a.ko) return;
+  a.ko = true;
+  a.koUntil = clock.elapsedTime + ROB_COOLDOWN;
+  a.bodyRobbed = false;
+  a.windup = 0;
+  showMsg('Knocked out! Press E to rob the body', 1800);
+}
+
+function dropLimb(a, name) {
+  const part = a.parts[name];
+  if (!part || !part.parent) return;
+  const type = name.startsWith('arm') ? 'arm' : name.startsWith('leg') ? 'leg' : 'head';
+  const mesh = part.isMesh ? part : part.children[0];
+  const pos = new THREE.Vector3();
+  mesh.getWorldPosition(pos);
+  part.parent.remove(part);
+  if (name === 'head') a.parts.eyes.parent?.remove(a.parts.eyes);
+  const loose = new THREE.Mesh(mesh.geometry, mesh.material);
+  loose.position.set(pos.x, type === 'head' ? 0.15 : 0.08, pos.z);
+  if (type !== 'head') loose.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
+  darkGroup.add(loose);
+  looseLimbs.push({ mesh: loose, type });
+}
+
+function chopAddict() {
+  const objs = [];
+  for (const a of addicts) if (!a.dead && a.g.position.x < -ROOM.w / 2) objs.push(a.g);
+  raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+  raycaster.far = 2.2;
+  const hit = raycaster.intersectObjects(objs, true).find((h) => h.object.userData.part);
+  if (!hit) return;
+  const a = addicts.find((x) => x.g === objs.find((o) => { let p = hit.object; while (p) { if (p === o) return true; p = p.parent; } return false; }));
+  if (!a) return;
+  let name = hit.object.userData.part;
+  if (name === 'torso') {
+    const side = a.g.worldToLocal(hit.point.clone()).x > 0 ? 'armR' : 'armL';
+    name = [side, side === 'armR' ? 'armL' : 'armR', 'legL', 'legR'].find((n) => a.parts[n].parent);
+  }
+  if (!name) return;
+  dropLimb(a, name);
+  a.dead = true;
+  a.ko = true;
+  a.koUntil = clock.elapsedTime + RESPAWN_TIME;
+  a.bodyRobbed = false;
+  a.windup = 0;
+  showMsg('Chopped! Press E to rob the body or pick up the limb', 2200);
+}
+
+function respawnAddict(a) {
+  for (const [name, part] of Object.entries(a.parts)) if (!part.parent) a.body.add(part);
+  a.dead = false; a.ko = false; a.robReady = 0; a.bodyRobbed = false;
+}
+
+function nearestLimb(range) {
+  let best = null, bestD = range;
+  for (const l of looseLimbs) {
+    const d = Math.hypot(l.mesh.position.x - player.pos.x, l.mesh.position.z - player.pos.z);
+    if (d < bestD) { best = l; bestD = d; }
+  }
+  return best;
+}
+function pickUpLimb(l) {
+  darkGroup.remove(l.mesh);
+  looseLimbs.splice(looseLimbs.indexOf(l), 1);
+  carried[l.type]++;
+  showMsg(`Picked up a ${l.type}. Sell it to the mysterious man.`, 1800);
+}
+function sellLimbs() {
+  const total = Object.keys(carried).reduce((s, k) => s + carried[k] * LIMB_VALUE[k], 0);
+  if (!total) return showMsg('"Bring me limbs... arms and legs 20, heads 35."', 2500);
+  Object.keys(carried).forEach((k) => (carried[k] = 0));
+  credits += total; updateCredits();
+  showMsg(`The man takes your cargo: +${total} credits`, 2500);
+}
+
+const bat = new THREE.Group();
+{
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.06, 0.9, 10), new THREE.MeshStandardMaterial({ color: 0xb98a4e, roughness: 0.6 }));
+  m.position.y = 0.4;
+  bat.add(m);
+  bat.visible = false;
+  camera.add(bat);
+  scene.add(camera);
+}
+
+const axe = new THREE.Group();
+{
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.8, 8), new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.7 }));
+  handle.position.y = 0.35;
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.2, 0.28), new THREE.MeshStandardMaterial({ color: 0xaab0b8, metalness: 0.8, roughness: 0.3 }));
+  blade.position.set(0, 0.68, -0.14);
+  axe.add(handle, blade);
+  axe.visible = false;
+  camera.add(axe);
+}
+const flash = new THREE.SpotLight(0xfff2d0, 120, 25, 0.45, 0.4, 1.5);
+flash.visible = false;
+flash.target.position.set(0, 0, -10);
+camera.add(flash, flash.target);
+const flashModel = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.28, 12), new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.6, roughness: 0.4 }));
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.035, 0.07, 12), new THREE.MeshStandardMaterial({ color: 0x55555e, metalness: 0.7, roughness: 0.3 }));
+  head.position.y = 0.17;
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), new THREE.MeshBasicMaterial({ color: 0xfff2d0 }));
+  lens.position.y = 0.206;
+  lens.rotation.x = -Math.PI / 2;
+  flashModel.add(body, head, lens);
+  flashModel.visible = false;
+  camera.add(flashModel);
+}
+const EQUIP_KEYS = { Digit1: 'bat', Digit6: 'axe', Digit7: 'flash' };
+const isOwned = (w) => (w === 'bat' ? hasBat : w === 'axe' ? hasAxe : hasFlash);
+function setWeapon(w) {
+  weapon = w;
+  bat.visible = hasBat && w === 'bat';
+  axe.visible = hasAxe && w === 'axe';
+  flashModel.visible = hasFlash && w === 'flash';
+  flash.visible = flashModel.visible && flashOn;
+  renderPillHud();
+}
+
+function openShop(kind) {
+  shop.active = true; shop.kind = kind;
+  show('shop', kind === 'weapons', 'block');
+  show('pillshop', kind === 'pills', 'block');
+  renderShop();
+}
+function closeShop() { shop.active = false; show('shop', false); show('pillshop', false); }
+function renderShop() {
+  $('shop-credits').textContent = credits;
+  $('shop-bat').textContent = hasBat ? 'Owned' : `${BAT_PRICE} credits`;
+  $('shop-flash').textContent = hasFlash ? 'Owned' : `${FLASH_PRICE} credits`;
+  $('shop-axe').textContent = hasAxe ? 'Owned' : `${AXE_PRICE} credits`;
+  if (!$('shop-status').textContent.startsWith('Not enough')) $('shop-status').textContent = hasBat || hasAxe ? 'Left click to attack. R cycles tools, F toggles the flashlight.' : '';
+  $('pill-credits').textContent = credits;
+  $('pill-list').innerHTML = PILLS.map((p, i) => `<p>${i + 1} · ${p.name} (${p.desc}) — ${p.price} credits <small>owned: ${p.count}</small></p>`).join('');
+  renderPillHud();
+}
+function buyBat() {
+  if (hasBat) { $('shop-status').textContent = 'You already own a bat.'; return; }
+  if (credits < BAT_PRICE) { $('shop-status').textContent = 'Not enough credits.'; return; }
+  $('shop-status').textContent = '';
+  credits -= BAT_PRICE;
+  hasBat = true;
+  setWeapon('bat');
+  renderPillHud();
+  updateCredits();
+  renderShop();
+}
+function buyFlash() {
+  if (hasFlash) { $('shop-status').textContent = 'You already own a flashlight.'; return; }
+  if (credits < FLASH_PRICE) { $('shop-status').textContent = 'Not enough credits.'; return; }
+  credits -= FLASH_PRICE;
+  hasFlash = true; flashOn = true;
+  setWeapon('flash');
+  $('shop-status').textContent = '';
+  updateCredits();
+  renderShop();
+}
+function buyAxe() {
+  if (hasAxe) { $('shop-status').textContent = 'You already own an axe.'; return; }
+  if (credits < AXE_PRICE) { $('shop-status').textContent = 'Not enough credits.'; return; }
+  credits -= AXE_PRICE;
+  hasAxe = true;
+  setWeapon('axe');
+  $('shop-status').textContent = '';
+  updateCredits();
+  renderShop();
+}
+function buyPill(i) {
+  const p = PILLS[i];
+  if (!p) return;
+  if (credits < p.price) { $('pill-status').textContent = 'Not enough credits.'; return; }
+  credits -= p.price; p.count++;
+  $('pill-status').textContent = `Bought ${p.name}. Press ${i + 2} outside the shop to take one.`;
+  updateCredits();
+  renderShop();
+}
+function usePill(i) {
+  const p = PILLS[i];
+  if (!p || p.count <= 0) return;
+  p.count--;
+  const now = clock.elapsedTime;
+  if (p.key === 'painkiller') health.hp = Math.min(health.max, health.hp + 50);
+  else if (p.key === 'antidep') addSadness(-50);
+  else buffs[p.key] = now + 60;
+  showMsg(`Took ${p.name}: ${p.desc}`, 1800);
+  renderPillHud();
+}
+
+function contextAction() {
+  const door = lookDot(-ROOM.w / 2, 0);
+  if (!DOOR.open && door.d < 2.6 && door.dot > 0.3) {
+    return { text: 'Press E to open the door to the Dark Room', run: () => { DOOR.open = true; showMsg('The Dark Room... ', 1500); } };
+  }
+  const dl = lookDot(DEALER.x, DEALER.z);
+  if (dl.d < 2.6 && dl.dot > 0.5) return { text: 'Press E to talk to the Pill Dealer', run: () => openShop('pills') };
+  const sh = lookDot(SHOP.x, SHOP.z);
+  if (sh.d < 2.8 && sh.dot > 0.35) return { text: 'Press E to open the weapons shop', run: () => openShop('weapons') };
+  const mm = lookDot(MAN.x, MAN.z);
+  if (mm.d < 2.8 && mm.dot > 0.35) return { text: 'Press E to sell limbs to the mysterious man', run: sellLimbs };
+  const limb = nearestLimb(1.6);
+  if (limb) return { text: `Press E to pick up the ${limb.type}`, run: () => pickUpLimb(limb) };
+  const a = targetAddict(1.6);
+  if (a) {
+    const now = clock.elapsedTime;
+    const text = a.ko
+      ? (a.bodyRobbed ? 'Body already robbed' : 'Press E to rob the body (80%)')
+      : now < a.robReady ? `Press E to rob (cooldown ${Math.ceil(a.robReady - now)}s)` : 'Press E to rob (40%)';
+    return { text, run: () => robAddict(a) };
+  }
+  return null;
+}
+
+function damagePlayer(n) {
+  if (clock.elapsedTime < buffs.ironpill) n = Math.ceil(n / 2);
+  health.hp = Math.max(0, health.hp - n);
+  const f = $('hurt');
+  f.style.opacity = 0.6;
+  setTimeout(() => (f.style.opacity = 0), 150);
+  if (health.hp <= 0) {
+    health.hp = health.max;
+    addSadness(KO_SADNESS);
+    player.pos.set(0, 0, 4);
+    player.vel.set(0, 0, 0);
+    player.yaw = 0; player.pitch = 0;
+    addicts.forEach((x) => (x.windup = 0));
+    showMsg('You were beaten senseless and dragged back to the casino.', 3500);
+  }
+}
+
+const INSANITY_TIME = 120;
+let insanity = 0, lost = false;
+function updateInsanity(dt, t) {
+  if (lost) return;
+  if (depression.v < 100) {
+    insanity = 0;
+    if (canvas.style.filter) { canvas.style.filter = ''; canvas.style.transform = ''; }
+    return;
+  }
+  insanity += dt;
+  const k = Math.min(1, 0.35 + insanity / INSANITY_TIME * 0.65);
+  const sw = Math.sin(t * 0.9), sw2 = Math.sin(t * 1.7 + 1);
+  canvas.style.filter = `hue-rotate(${Math.sin(t * 0.6) * 90 * k}deg) blur(${(1.5 + sw2 * 1.5 + 1.5) * k}px) saturate(${1 + k})`;
+  canvas.style.transform = `rotate(${sw * 6 * k}deg) scale(${1.08 + 0.06 * k * sw2}) skew(${sw2 * 3 * k}deg, ${sw * 2 * k}deg)`;
+  if (insanity >= INSANITY_TIME) loseGame();
+}
+function loseGame() {
+  lost = true;
+  started = false;
+  canvas.style.filter = ''; canvas.style.transform = '';
+  document.exitPointerLock();
+  show('pause', false);
+  show('gameover', true);
+}
+$('restart').onclick = () => location.reload();
+
+function updateAddicts(dt, t) {
+  const inDark = player.pos.x < -ROOM.w / 2;
+  darkLights.forEach((l) => (l.intensity = 4 + Math.sin(t * 7 + l.userData.phase) * 0.8 * (Math.sin(t * 1.3 + l.userData.phase) > 0.6 ? 1 : 0.2)));
+  for (const a of addicts) {
+    const p = a.g.position;
+    if (a.ko) {
+      if (t >= a.koUntil) { if (a.dead) respawnAddict(a); else { a.ko = false; a.robReady = 0; a.bodyRobbed = false; } }
+      a.fall = Math.min(1, a.fall + dt * 4);
+    } else {
+      a.fall = Math.max(0, a.fall - dt * 1.5);
+    }
+    a.body.rotation.x = -a.fall * Math.PI / 2;
+    a.body.position.y = a.fall * 0.15;
+    if (a.ko) continue;
+
+    const dx = player.pos.x - p.x, dz = player.pos.z - p.z;
+    const dist = Math.hypot(dx, dz);
+    const chasing = inDark && dist < 6;
+    a.sway += dt * 2;
+    if (a.windup > 0) {
+      a.windup += dt;
+      a.heading = Math.atan2(dx, dz);
+      if (a.windup > 0.7) {
+        a.windup = 0;
+        a.punchCd = 2;
+        if (dist < 1.1) damagePlayer(rand(8, 14));
+      }
+    } else if (chasing) {
+      a.heading = Math.atan2(dx, dz);
+      a.punchCd -= dt;
+      if (dist > 0.9) {
+        p.x += (dx / dist) * 0.75 * dt;
+        p.z += (dz / dist) * 0.75 * dt;
+      } else if (a.punchCd <= 0) a.windup = 0.01;
+    } else {
+      a.turnT -= dt;
+      if (a.turnT <= 0) { a.heading += (Math.random() - 0.5) * 2.5; a.turnT = 2 + Math.random() * 3; }
+      p.x += Math.sin(a.heading) * 0.4 * dt;
+      p.z += Math.cos(a.heading) * 0.4 * dt;
+    }
+    p.x = Math.max(DARK.minX + 0.5, Math.min(-ROOM.w / 2 - 1.5, p.x));
+    p.z = Math.max(-DARK.d / 2 + 0.5, Math.min(DARK.d / 2 - 0.5, p.z));
+    for (const c of colliders) {
+      if (c.minX > -ROOM.w / 2) continue;
+      if (p.x > c.minX - 0.4 && p.x < c.maxX + 0.4 && p.z > c.minZ - 0.4 && p.z < c.maxZ + 0.4) {
+        a.heading += Math.PI / 2;
+        p.x += p.x < (c.minX + c.maxX) / 2 ? -0.02 : 0.02;
+        p.z += p.z < (c.minZ + c.maxZ) / 2 ? -0.02 : 0.02;
+      }
+    }
+    a.g.rotation.y += (((a.heading - a.g.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 3);
+    a.body.rotation.z = Math.sin(a.sway) * 0.08;
+    const raise = a.windup > 0 ? Math.min(1, a.windup / 0.5) * -1.6 + (a.windup > 0.5 ? 1.6 : 0) : -0.3 + Math.sin(a.sway) * 0.15;
+    a.armR.rotation.x = raise;
+    a.armL.rotation.x = -0.3 - Math.sin(a.sway) * 0.15;
+  }
+}
+
+function updateHealthAndBat(dt, t) {
+  if (player.pos.x >= -ROOM.w / 2 && health.hp < health.max) health.hp = Math.min(health.max, health.hp + 3 * dt);
+  $('health').textContent = Math.ceil(health.hp);
+  if (batSwing > 0) batSwing = Math.max(0, batSwing - dt);
+  axe.position.set(0.35 - Math.sin((1 - batSwing / 0.35) * Math.PI) * (batSwing > 0 ? 0.3 : 0), -0.3, -0.6);
+  axe.rotation.set(-0.3 - (batSwing > 0 ? Math.sin((1 - batSwing / 0.35) * Math.PI) * 1.2 : 0), 0, -0.2);
+  const k = batSwing > 0 ? Math.sin((1 - batSwing / 0.35) * Math.PI) : 0;
+  bat.position.set(0.35 - k * 0.3, -0.3, -0.6);
+  bat.rotation.set(-0.3 - k * 1.2, 0, -0.4 + k * 0.6);
+  flashModel.position.set(0.3, -0.25 + Math.sin(t * 1.5) * 0.004, -0.5);
+  flashModel.rotation.set(-1.3, 0, -0.1);
+  flash.position.set(0.3, -0.2, -0.5);
+  updateInsanity(dt, t);
+  const dark = player.pos.x < -ROOM.w / 2;
+  scene.fog.near = dark ? 1 : 10;
+  scene.fog.far = dark ? 11 : 30;
+  scene.fog.color.setHex(dark ? 0x030202 : 0x120308);
+  scene.background.setHex(dark ? 0x030202 : 0x120308);
+  if (shop.active && lookDot(shop.kind === 'pills' ? DEALER.x : SHOP.x, shop.kind === 'pills' ? DEALER.z : SHOP.z).d > 3.5) closeShop();
+}
+
 // ---------- Menu / pointer lock ----------
 const canvas = renderer.domElement;
 const show = (id, on, d = 'flex') => ($(id).style.display = on ? d : 'none');
@@ -1436,10 +2115,12 @@ document.addEventListener('pointerlockchange', () => {
   playing = locked;
   show('menu', false);
   show('hud', locked, 'block');
+  show('hotbar', locked, 'flex');
+  show('dep', locked, 'flex');
   show('cross', locked, 'block');
-  show('pause', !locked && started);
+  show('pause', !locked && started && !lost);
   if (!locked && dice.phase === 'held') { resetDice(); dice.phase = 'betting'; }
-  if (!locked) { Object.keys(keys).forEach((k) => (keys[k] = false)); show('prompt', false); }
+  if (!locked) { closeShop(); Object.keys(keys).forEach((k) => (keys[k] = false)); show('prompt', false); }
 });
 
 let started = false;
@@ -1464,8 +2145,10 @@ function frame() {
     const nearDc = !seated && !nearTable && !nearRoul && nearDice();
     const near = nm && !nm.spinning;
     const nearPl = !seated && !nm && !nearTable && !nearRoul && !nearDc && nearPlinko();
-    $('prompt').style.display = nearTable || nearRoul || nearDc || near || nearPl ? 'block' : 'none';
-    if (nearTable) $('prompt').textContent = `Press E to play blackjack (${bet} credits)`;
+    const ctx = seated || shop.active ? null : contextAction();
+    $('prompt').style.display = ctx || nearTable || nearRoul || nearDc || near || nearPl ? 'block' : 'none';
+    if (ctx) $('prompt').textContent = ctx.text;
+    else if (nearTable) $('prompt').textContent = `Press E to play blackjack (${bet} credits)`;
     else if (nearRoul) $('prompt').textContent = 'Press E to play roulette';
     else if (nearDc) $('prompt').textContent = 'Press E to play dice';
     else if (near) $('prompt').textContent = `Press E to spin (${bet} credits)`;
@@ -1475,6 +2158,8 @@ function frame() {
     camera.position.set(Math.sin(t * 0.15) * 3, 1.8, 3);
     camera.lookAt(0, 1.8, -7);
   }
+  if (playing) updateHealthAndBat(dt, t);
+  updateAddicts(dt, t);
   updateDealer(t, dt);
   updateRoulette(dt);
   updateDice(dt);
